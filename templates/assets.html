@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+  <div class="card-header">资产展示页（只读）</div>
+  <div class="table-responsive">
+    <table class="table table-striped align-middle mb-0">
+      <thead>
+        <tr>
+          <th>状态</th>
+          <th>所属员工</th>
+          <th>资产 SN</th>
+          <th>资产型号</th>
+          <th>电脑密码</th>
+          <th>最近更新时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in assets %}
+          <tr>
+            <td>
+              {% if a.status == 'in_use' %}
+                <span class="badge bg-primary">在用</span>
+              {% else %}
+                <span class="badge bg-warning text-dark">闲置</span>
+              {% endif %}
+            </td>
+            <td>{{ a.employee_name or '-' }}</td>
+            <td>{{ a.sn }}</td>
+            <td>{{ a.model }}</td>
+            <td><code>{{ a.password or '-' }}</code></td>
+            <td>{{ a.updated_at }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="text-center text-muted">暂无资产</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
