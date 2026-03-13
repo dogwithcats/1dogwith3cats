@@ -9,6 +9,14 @@
 </head>
 <body>
   <div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h1 class="mb-0">在线资产管理系统</h1>
+      <div class="btn-group">
+        <a class="btn btn-outline-primary" href="{{ url_for('asset_list') }}">资产展示页</a>
+        <a class="btn btn-outline-dark" href="{{ url_for('manage_page') }}">管理页</a>
+      </div>
+    </div>
+
     <h1 class="mb-4">在线资产管理系统</h1>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}

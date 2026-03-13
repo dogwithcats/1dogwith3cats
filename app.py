@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Iterable
 
@@ -13,9 +15,36 @@ from flask import Flask, flash, g, redirect, render_template, request, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "assets.db"
+LOG_DIR = BASE_DIR / "logs"
+LOG_FILE = LOG_DIR / "app.log"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("ASSET_APP_SECRET", "dev-secret-key")
+
+
+def configure_logging() -> None:
+    LOG_DIR.mkdir(exist_ok=True)
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        "%Y-%m-%d %H:%M:%S",
+    )
+
+    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=5)
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(logging.INFO)
+
+    app.logger.handlers.clear()
+    app.logger.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
+    app.logger.addHandler(stream_handler)
+
+
+def now_text() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ---------- DB helpers ----------
@@ -59,6 +88,13 @@ def init_db() -> None:
         cursor.executescript(schema)
     db.commit()
     db.close()
+    app.logger.info("数据库初始化完成")
+
+
+# ---------- Core business logic ----------
+def release_assets_for_departed_employee(employee_id: int) -> int:
+    db = get_db()
+    cur = db.execute(
 
 
 # ---------- Core business logic ----------
@@ -79,6 +115,7 @@ def release_assets_for_departed_employee(employee_id: int) -> None:
         (now_text(), employee_id),
     )
     db.commit()
+    return cur.rowcount
 
 
 def upsert_asset(sn: str, model: str, password: str, employee_name: str | None) -> tuple[bool, str]:
@@ -101,6 +138,7 @@ def upsert_asset(sn: str, model: str, password: str, employee_name: str | None) 
                 (employee_name, now_text()),
             )
             employee_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+            app.logger.info("导入/录入资产时自动创建员工: %s(id=%s)", employee_name, employee_id)
         else:
             employee_id = existing["id"]
         status = "in_use"
@@ -120,6 +158,7 @@ def upsert_asset(sn: str, model: str, password: str, employee_name: str | None) 
             (model, password, status, employee_id, now_text(), existing_asset["id"]),
         )
         db.commit()
+        app.logger.info("更新资产: SN=%s status=%s employee_id=%s", sn, status, employee_id)
         return True, f"已更新资产 {sn}"
 
     db.execute(
@@ -130,6 +169,7 @@ def upsert_asset(sn: str, model: str, password: str, employee_name: str | None) 
         (sn, model, password, status, employee_id, now_text(), now_text()),
     )
     db.commit()
+    app.logger.info("新增资产: SN=%s status=%s employee_id=%s", sn, status, employee_id)
     return True, f"已新增资产 {sn}"
 
 
@@ -184,6 +224,14 @@ def normalize_import_row(row: dict[str, str]) -> tuple[str, str, str, str]:
 
 # ---------- Routes ----------
 @app.route("/")
+<<<<<<< HEAD
+def home():
+    return redirect(url_for("asset_list"))
+
+
+@app.route("/assets")
+def asset_list():
+=======
 def index():
     db = get_db()
     assets = db.execute(
@@ -194,6 +242,15 @@ def index():
         ORDER BY a.updated_at DESC
         """
     ).fetchall()
+    return render_template("assets.html", assets=assets)
+
+
+@app.route("/manage")
+def manage_page():
+    db = get_db()
+    employees = db.execute("SELECT * FROM employees ORDER BY name").fetchall()
+    assets = db.execute("SELECT id, sn, status FROM assets ORDER BY updated_at DESC").fetchall()
+    return render_template("manage.html", employees=employees, assets=assets)
     employees = db.execute("SELECT * FROM employees ORDER BY name").fetchall()
     return render_template("index.html", assets=assets, employees=employees)
 
@@ -203,6 +260,7 @@ def create_employee():
     name = request.form.get("name", "").strip()
     if not name:
         flash("员工名不能为空", "danger")
+        return redirect(url_for("manage_page"))
         return redirect(url_for("index"))
 
     db = get_db()
@@ -212,6 +270,11 @@ def create_employee():
             (name, now_text()),
         )
         db.commit()
+        app.logger.info("新增员工: %s", name)
+        flash(f"员工 {name} 已添加", "success")
+    except sqlite3.IntegrityError:
+        flash(f"员工 {name} 已存在", "warning")
+    return redirect(url_for("manage_page"))
         flash(f"员工 {name} 已添加", "success")
     except sqlite3.IntegrityError:
         flash(f"员工 {name} 已存在", "warning")
@@ -224,6 +287,29 @@ def depart_employee(employee_id: int):
     employee = db.execute("SELECT * FROM employees WHERE id = ?", (employee_id,)).fetchone()
     if employee is None:
         flash("未找到员工", "danger")
+        return redirect(url_for("manage_page"))
+
+    db.execute("UPDATE employees SET status = 'departed' WHERE id = ?", (employee_id,))
+    db.commit()
+    released = release_assets_for_departed_employee(employee_id)
+    app.logger.info("员工离职: %s(id=%s)，回收资产数=%s", employee["name"], employee_id, released)
+    flash(f"员工 {employee['name']} 已离职，名下资产已转为闲置", "success")
+    return redirect(url_for("manage_page"))
+
+
+@app.post("/employees/<int:employee_id>/reactivate")
+def reactivate_employee(employee_id: int):
+    db = get_db()
+    employee = db.execute("SELECT * FROM employees WHERE id = ?", (employee_id,)).fetchone()
+    if employee is None:
+        flash("未找到员工", "danger")
+        return redirect(url_for("manage_page"))
+
+    db.execute("UPDATE employees SET status = 'active' WHERE id = ?", (employee_id,))
+    db.commit()
+    app.logger.info("员工恢复在职: %s(id=%s)", employee["name"], employee_id)
+    flash(f"员工 {employee['name']} 已恢复为在职", "success")
+    return redirect(url_for("manage_page"))
         return redirect(url_for("index"))
 
     db.execute("UPDATE employees SET status = 'departed' WHERE id = ?", (employee_id,))
@@ -241,6 +327,7 @@ def create_asset():
     password = request.form.get("password", "")
     ok, msg = upsert_asset(sn=sn, model=model, password=password, employee_name=employee)
     flash(msg, "success" if ok else "danger")
+    return redirect(url_for("manage_page"))
     return redirect(url_for("index"))
 
 
@@ -255,6 +342,7 @@ def assign_asset(asset_id: int):
 
     if asset is None or employee is None:
         flash("资产或员工不存在", "danger")
+        return redirect(url_for("manage_page"))
         return redirect(url_for("index"))
 
     db.execute(
@@ -262,6 +350,9 @@ def assign_asset(asset_id: int):
         (employee_id, now_text(), asset_id),
     )
     db.commit()
+    app.logger.info("分配资产: SN=%s -> 员工=%s(id=%s)", asset["sn"], employee["name"], employee_id)
+    flash(f"资产 {asset['sn']} 已分配给 {employee['name']}", "success")
+    return redirect(url_for("manage_page"))
     flash(f"资产 {asset['sn']} 已分配给 {employee['name']}", "success")
     return redirect(url_for("index"))
 
@@ -269,11 +360,16 @@ def assign_asset(asset_id: int):
 @app.post("/assets/<int:asset_id>/idle")
 def mark_idle(asset_id: int):
     db = get_db()
+    asset = db.execute("SELECT sn FROM assets WHERE id = ?", (asset_id,)).fetchone()
     db.execute(
         "UPDATE assets SET employee_id = NULL, status = 'idle', updated_at = ? WHERE id = ?",
         (now_text(), asset_id),
     )
     db.commit()
+    if asset:
+        app.logger.info("资产转闲置: SN=%s", asset["sn"])
+    flash("资产已转为闲置", "success")
+    return redirect(url_for("manage_page"))
     flash("资产已转为闲置", "success")
     return redirect(url_for("index"))
 
@@ -283,11 +379,15 @@ def import_assets():
     upload = request.files.get("file")
     if upload is None or not upload.filename:
         flash("请选择要导入的文件", "danger")
+        return redirect(url_for("manage_page"))
         return redirect(url_for("index"))
 
     try:
         rows = list(parse_rows_from_upload(upload.filename, upload.read()))
     except RuntimeError as exc:
+        app.logger.warning("导入失败: %s", exc)
+        flash(str(exc), "danger")
+        return redirect(url_for("manage_page"))
         flash(str(exc), "danger")
         return redirect(url_for("index"))
 
@@ -298,6 +398,19 @@ def import_assets():
         if ok:
             success_count += 1
 
+    app.logger.info("资产导入完成: file=%s total=%s success=%s", upload.filename, len(rows), success_count)
+    flash(f"导入完成：成功处理 {success_count} 条", "success")
+    return redirect(url_for("manage_page"))
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error: Exception):
+    app.logger.exception("未捕获异常: %s", error)
+    return "系统发生异常，请查看 logs/app.log", 500
+
+
+if __name__ == "__main__":
+    configure_logging()
     flash(f"导入完成：成功处理 {success_count} 条", "success")
     return redirect(url_for("index"))
 
