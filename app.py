@@ -95,6 +95,16 @@ def init_db() -> None:
 def release_assets_for_departed_employee(employee_id: int) -> int:
     db = get_db()
     cur = db.execute(
+
+
+# ---------- Core business logic ----------
+def now_text() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def release_assets_for_departed_employee(employee_id: int) -> None:
+    db = get_db()
+    db.execute(
         """
         UPDATE assets
         SET employee_id = NULL,
@@ -214,12 +224,15 @@ def normalize_import_row(row: dict[str, str]) -> tuple[str, str, str, str]:
 
 # ---------- Routes ----------
 @app.route("/")
+<<<<<<< HEAD
 def home():
     return redirect(url_for("asset_list"))
 
 
 @app.route("/assets")
 def asset_list():
+=======
+def index():
     db = get_db()
     assets = db.execute(
         """
@@ -238,6 +251,8 @@ def manage_page():
     employees = db.execute("SELECT * FROM employees ORDER BY name").fetchall()
     assets = db.execute("SELECT id, sn, status FROM assets ORDER BY updated_at DESC").fetchall()
     return render_template("manage.html", employees=employees, assets=assets)
+    employees = db.execute("SELECT * FROM employees ORDER BY name").fetchall()
+    return render_template("index.html", assets=assets, employees=employees)
 
 
 @app.post("/employees")
@@ -246,6 +261,7 @@ def create_employee():
     if not name:
         flash("员工名不能为空", "danger")
         return redirect(url_for("manage_page"))
+        return redirect(url_for("index"))
 
     db = get_db()
     try:
@@ -259,6 +275,10 @@ def create_employee():
     except sqlite3.IntegrityError:
         flash(f"员工 {name} 已存在", "warning")
     return redirect(url_for("manage_page"))
+        flash(f"员工 {name} 已添加", "success")
+    except sqlite3.IntegrityError:
+        flash(f"员工 {name} 已存在", "warning")
+    return redirect(url_for("index"))
 
 
 @app.post("/employees/<int:employee_id>/depart")
@@ -290,6 +310,13 @@ def reactivate_employee(employee_id: int):
     app.logger.info("员工恢复在职: %s(id=%s)", employee["name"], employee_id)
     flash(f"员工 {employee['name']} 已恢复为在职", "success")
     return redirect(url_for("manage_page"))
+        return redirect(url_for("index"))
+
+    db.execute("UPDATE employees SET status = 'departed' WHERE id = ?", (employee_id,))
+    db.commit()
+    release_assets_for_departed_employee(employee_id)
+    flash(f"员工 {employee['name']} 已离职，名下资产已转为闲置", "success")
+    return redirect(url_for("index"))
 
 
 @app.post("/assets")
@@ -301,6 +328,7 @@ def create_asset():
     ok, msg = upsert_asset(sn=sn, model=model, password=password, employee_name=employee)
     flash(msg, "success" if ok else "danger")
     return redirect(url_for("manage_page"))
+    return redirect(url_for("index"))
 
 
 @app.post("/assets/<int:asset_id>/assign")
@@ -315,6 +343,7 @@ def assign_asset(asset_id: int):
     if asset is None or employee is None:
         flash("资产或员工不存在", "danger")
         return redirect(url_for("manage_page"))
+        return redirect(url_for("index"))
 
     db.execute(
         "UPDATE assets SET employee_id = ?, status = 'in_use', updated_at = ? WHERE id = ?",
@@ -324,6 +353,8 @@ def assign_asset(asset_id: int):
     app.logger.info("分配资产: SN=%s -> 员工=%s(id=%s)", asset["sn"], employee["name"], employee_id)
     flash(f"资产 {asset['sn']} 已分配给 {employee['name']}", "success")
     return redirect(url_for("manage_page"))
+    flash(f"资产 {asset['sn']} 已分配给 {employee['name']}", "success")
+    return redirect(url_for("index"))
 
 
 @app.post("/assets/<int:asset_id>/idle")
@@ -339,6 +370,8 @@ def mark_idle(asset_id: int):
         app.logger.info("资产转闲置: SN=%s", asset["sn"])
     flash("资产已转为闲置", "success")
     return redirect(url_for("manage_page"))
+    flash("资产已转为闲置", "success")
+    return redirect(url_for("index"))
 
 
 @app.post("/assets/import")
@@ -347,6 +380,7 @@ def import_assets():
     if upload is None or not upload.filename:
         flash("请选择要导入的文件", "danger")
         return redirect(url_for("manage_page"))
+        return redirect(url_for("index"))
 
     try:
         rows = list(parse_rows_from_upload(upload.filename, upload.read()))
@@ -354,6 +388,8 @@ def import_assets():
         app.logger.warning("导入失败: %s", exc)
         flash(str(exc), "danger")
         return redirect(url_for("manage_page"))
+        flash(str(exc), "danger")
+        return redirect(url_for("index"))
 
     success_count = 0
     for row in rows:
@@ -375,5 +411,10 @@ def handle_unexpected_error(error: Exception):
 
 if __name__ == "__main__":
     configure_logging()
+    flash(f"导入完成：成功处理 {success_count} 条", "success")
+    return redirect(url_for("index"))
+
+
+if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=5000, debug=True)
