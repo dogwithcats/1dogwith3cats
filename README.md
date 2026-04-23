@@ -60,3 +60,5 @@ python app.py
 
 - SQLite 文件默认在项目根目录：`assets.db`
 - 首次启动会自动建表。
+
+- 测试中.
