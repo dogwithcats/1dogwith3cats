@@ -60,3 +60,37 @@ python app.py
 
 - SQLite 文件默认在项目根目录：`assets.db`
 - 首次启动会自动建表。
+
+## Grafana Dashboard 全量截图（Python）
+
+新增脚本：`grafana_screenshot.py`，用于一键截取 Grafana Dashboard **整页**图片。
+
+### 安装依赖
+
+```bash
+pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+### 执行截图
+
+```bash
+python grafana_screenshot.py \
+  --url "http://172.16.113.194:3000/d/Rl3woO0nk/zhong-bai-ji-qi-jian-kong-node?orgId=1&var-name=sso&var-node=172.16.113.218:9100&var-maxmount=%2F&from=now-7d&to=now" \
+  --output node_dashboard_full.png \
+  --headless
+```
+
+如需登录后截图，可追加：
+
+```bash
+--username admin --password 'your-password'
+```
+
+如果登录页不是通过 dashboard URL 自动跳转出来（例如有独立认证入口），可再加：
+
+```bash
+--login-url "http://172.16.113.194:3000/login"
+```
+
+脚本会在截图前校验是否仍停留在登录页，避免误保存登录页图片。
