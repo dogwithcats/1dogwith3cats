@@ -86,3 +86,11 @@ python grafana_screenshot.py \
 ```bash
 --username admin --password 'your-password'
 ```
+
+如果登录页不是通过 dashboard URL 自动跳转出来（例如有独立认证入口），可再加：
+
+```bash
+--login-url "http://172.16.113.194:3000/login"
+```
+
+脚本会在截图前校验是否仍停留在登录页，避免误保存登录页图片。
