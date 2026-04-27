@@ -60,3 +60,84 @@ python app.py
 
 - SQLite 文件默认在项目根目录：`assets.db`
 - 首次启动会自动建表。
+
+## Grafana Dashboard 全量截图（Python）
+
+新增脚本：`grafana_screenshot.py`，用于一键截取 Grafana Dashboard **整页**图片。
+
+默认截图文件名会使用 URL 里的 `var-name` + `var-node`，格式为：`<var-name>_<var-node>.png`。
+
+### 安装依赖
+
+```bash
+pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+### 执行截图
+
+```bash
+python grafana_screenshot.py \
+  --url "http://172.16.113.194:3000/d/Rl3woO0nk/zhong-bai-ji-qi-jian-kong-node?orgId=1&var-name=sso&var-node=172.16.113.218:9100&var-maxmount=%2F&from=now-7d&to=now" \
+  --output node_dashboard_full.png \
+  --headless
+```
+
+如需登录后截图，可追加：
+
+```bash
+--username admin --password 'your-password'
+```
+
+如果登录页不是通过 dashboard URL 自动跳转出来（例如有独立认证入口），可再加：
+
+```bash
+--login-url "http://172.16.113.194:3000/login"
+```
+
+脚本会在截图前校验是否仍停留在登录页，避免误保存登录页图片。
+
+Windows `cmd` 下请使用双引号传密码，例如 `--password "ZBkgjt.bigdata"`；
+不要使用单引号（`'`），否则单引号会被当成密码内容导致登录失败。
+
+### 多主机 URL 获取与批量截图
+
+如果你有很多主机（`var-node`），推荐两种方式：
+
+1. **先准备节点列表文件**（每行一个节点，例如 `172.16.113.218:9100`）。
+2. 使用脚本自动拼接 URL 并批量截图。
+
+示例：
+
+```bash
+python grafana_screenshot.py \
+  --url "http://172.16.113.194:3000/d/Rl3woO0nk/zhong-bai-ji-qi-jian-kong-node?orgId=1&var-name=sso&var-node=172.16.113.218:9100&var-maxmount=%2F&from=now-7d&to=now" \
+  --nodes-file nodes.txt \
+  --output-dir screenshots \
+  --export-urls generated_urls.txt \
+  --login-url "http://172.16.113.194:3000/login" \
+  --username admin \
+  --password "your-password" \
+  --headless
+```
+
+说明：
+
+- `--export-urls generated_urls.txt` 会把每个主机对应的 dashboard URL 导出到文件。
+- 批量截图文件名默认规则：`<var-name>_<var-node>.png`。
+- 也可直接用 `--nodes "172.16.113.218:9100,172.16.113.219:9100"` 传多个节点。
+
+
+### 批量超时处理建议
+
+如果某些主机慢、偶发超时，不要中断整批任务：
+
+- 默认已支持重试（`--retries 2`）
+- 可增大超时时间（例如 `--timeout 180000`）
+- 失败主机会写入 `failed_nodes.txt`，可二次重跑
+
+示例（更稳妥的批量执行）：
+
+```bash
+python grafana_screenshot.py   --url "http://172.16.113.194:3000/d/Rl3woO0nk/zhong-bai-ji-qi-jian-kong-node?orgId=1&var-name=sso&var-node=172.16.113.218:9100&var-maxmount=%2F&from=now-7d&to=now"   --nodes-file nodes.txt   --output-dir screenshots   --export-urls generated_urls.txt   --failed-file failed_nodes.txt   --timeout 180000   --retries 3   --login-url "http://172.16.113.194:3000/login"   --username admin   --password "your-password"   --headless
+```
